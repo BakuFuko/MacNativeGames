@@ -1,0 +1,146 @@
+name: TOTK iOS Shell Build (CI 出壳)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: TOTK 版本
+        required: true
+        default: 'v121'
+        type: choice
+        options:
+          - v0
+          - v112
+          - v121
+          - v143
+      verify_jobs:
+        description: verify 差分测试并发（越大越快，CI 8 核建议 4）
+        required: false
+        default: '4'
+        type: string
+
+# 隐私提示：本 workflow 从私有对象存储（S3 兼容）拉取中间产物、回传壳 zip。
+# 首次使用前请在仓库 Settings -> Secrets and variables -> Actions 配置：
+#   CI_S3_ENDPOINT  （如 https://<account>.r2.cloudflarestorage.com）
+#   CI_S3_ACCESS    （Access Key Id）
+#   CI_S3_SECRET    （Secret Access Key）
+#   CI_S3_BUCKET    （桶名）
+#   CI_S3_PREFIX    （对象前缀，默认空）
+# 上传物打包与上传命令见 docs/TOTK_CI_shell_build_handoff.md。
+
+concurrency:
+  group: totk-shell-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-build:
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      PYTHONUTF8: '1'
+      LLVM_BIN: /opt/homebrew/opt/llvm/bin
+      CI_S3_ENDPOINT: ${{ secrets.CI_S3_ENDPOINT }}
+      CI_S3_ACCESS: ${{ secrets.CI_S3_ACCESS }}
+      CI_S3_SECRET: ${{ secrets.CI_S3_SECRET }}
+      CI_S3_BUCKET: ${{ secrets.CI_S3_BUCKET }}
+      CI_S3_PREFIX: ${{ secrets.CI_S3_PREFIX }}
+      TOTK_VERSION: ${{ inputs.version }}
+      TOTK_VERIFY_JOBS: ${{ inputs.verify_jobs }}
+    steps:
+      - name: Checkout MacNativeGames fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 安装系统依赖（xcodegen / llvm / opus / libvpx / s3cmd）
+        run: |
+          brew install xcodegen llvm opus libvpx cmake ninja
+          pip3 install --user s3cmd
+
+      - name: 配置 S3 客户端（R2/COS/OSS 兼容）
+        run: |
+          set -euo pipefail
+          cat > ~/.s3cfg <<EOF
+          [default]
+          access_key = ${CI_S3_ACCESS}
+          secret_key = ${CI_S3_SECRET}
+          host_base = ${CI_S3_ENDPOINT#https://}
+          host_bucket = %(bucket)s.${CI_S3_ENDPOINT#https://}
+          use_https = True
+          EOF
+
+      - name: 下载中间产物（本机 TOTK_build 上传物）
+        run: |
+          set -euo pipefail
+          if [[ -z "${CI_S3_ENDPOINT}" || -z "${CI_S3_ACCESS}" || -z "${CI_S3_SECRET}" || -z "${CI_S3_BUCKET}" ]]; then
+            echo "::error::缺少 S3 secrets，请按 workflow 头部说明配置"
+            exit 1
+          fi
+          PREFIX="${CI_S3_PREFIX:-}"
+          KEY="${PREFIX:+${PREFIX}/}totk-ci-input-${TOTK_VERSION}.zip"
+          s3cmd --no-progress get "s3://${CI_S3_BUCKET}/${KEY}" /tmp/totk-ci-input.zip
+          cd games/totk
+          unzip -q -o /tmp/totk-ci-input.zip
+
+      - name: 补齐 romfs index（v121 无独立 romfs 时回退 v0）并建稀疏 romfs.bin 占位
+        run: |
+          set -euo pipefail
+          cd games/totk
+          V="${TOTK_VERSION}"
+          mkdir -p "extracted/${V}/romfs"
+          if [[ ! -f "extracted/${V}/romfs/index.json" ]]; then
+            cp extracted/v0/romfs/index.json "extracted/${V}/romfs/index.json"
+          fi
+          SIZE=$(python3 -c 'import json;print(json.load(open("extracted/'${V}'/romfs/index.json"))["romfs_size"])')
+          truncate -s "${SIZE}" "extracted/${V}/romfs/romfs.bin"
+
+      - name: 初始化 Python venv 并安装依赖
+        run: |
+          cd games/totk
+          make dependencies
+
+      - name: make verify（生成 phase12-validation.json + 等价性 gate）
+        run: |
+          cd games/totk
+          make verify
+
+      - name: make runtime（编译 totk-native 与 Gen 表）
+        run: |
+          cd games/totk
+          if [[ "${TOTK_VERSION}" == "v0" ]]; then
+            make runtime
+          else
+            make "runtime-${TOTK_VERSION}"
+          fi
+
+      - name: 出壳（t2k_shell_build.py，产出 TOTK-shell zip）
+        run: |
+          set -euo pipefail
+          cd games/totk
+          mkdir -p /tmp/totk-shell
+          python3 ios/tools/t2k_shell_build.py \
+            --tree . \
+            --version "${TOTK_VERSION}" \
+            --out "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.zip"
+          sha256sum "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.zip" \
+            | tee "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.sha256"
+
+      - name: 回传壳 zip 到对象存储
+        run: |
+          set -euo pipefail
+          PREFIX="${CI_S3_PREFIX:-}"
+          KEY="${PREFIX:+${PREFIX}/}TOTK-shell-${TOTK_VERSION}.zip"
+          s3cmd --no-progress put "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.zip" \
+            "s3://${CI_S3_BUCKET}/${KEY}" || \
+            echo "::warning::S3 回传失败（若未配置写权限，可改用下方 upload-artifact 下载）"
+          sha256sum "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.zip"
+
+      - name: 上传壳 zip 为 GitHub Artifact（兜底回传）
+        uses: actions/upload-artifact@v4
+        with:
+          name: TOTK-shell-${{ inputs.version }}
+          path: |
+            /tmp/totk-shell/TOTK-shell-${{ inputs.version }}.zip
+            /tmp/totk-shell/TOTK-shell-${{ inputs.version }}.sha256
+          if-no-files-found: error
+          retention-days: 7
