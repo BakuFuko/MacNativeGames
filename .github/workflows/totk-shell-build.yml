@@ -56,6 +56,7 @@ jobs:
         run: |
           brew install xcodegen llvm opus libvpx cmake ninja
           pip3 install --user --break-system-packages s3cmd
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: 配置 S3 客户端（R2/COS/OSS 兼容）
         run: |
