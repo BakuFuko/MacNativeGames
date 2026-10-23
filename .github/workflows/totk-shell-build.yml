@@ -102,7 +102,7 @@ jobs:
       - name: make verify（生成 phase12-validation.json + 等价性 gate）
         run: |
           cd games/totk
-          make verify
+          ".venv/bin/python" scripts/verify_rewrites.py --version "${TOTK_VERSION}" --jobs "${TOTK_VERIFY_JOBS:-4}"
 
       - name: make runtime（编译 totk-native 与 Gen 表）
         run: |
