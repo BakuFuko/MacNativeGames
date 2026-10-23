@@ -55,7 +55,7 @@ jobs:
       - name: 安装系统依赖（xcodegen / llvm / opus / libvpx / s3cmd）
         run: |
           brew install xcodegen llvm opus libvpx cmake ninja
-          pip3 install --user s3cmd
+          pip3 install --user --break-system-packages s3cmd
 
       - name: 配置 S3 客户端（R2/COS/OSS 兼容）
         run: |
