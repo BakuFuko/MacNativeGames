@@ -61,7 +61,11 @@ static uint8_t user_exception_context[0x1000] __attribute__((aligned(0x1000)));
 #else
 #define GAME_PROGRAM_ID 0x0100f2c0115b6000ULL
 #endif
+#if TARGET_OS_IPHONE
+#define HEAP_CAP (3ULL<<30)   /* iOS: shaved 1 GiB off so stack+heap+alias fit the scarce vm map (1.4.3 asks ~2.2 GiB) */
+#else
 #define HEAP_CAP (4ULL<<30)   /* 1.4.3 sets a 2.2 GiB heap during nninitStartup */
+#endif
 #define APP_POOL app_pool()
 static uint64_t app_pool(void){static uint64_t v;if(!v){const char *e=getenv("TOTK_APP_POOL");uint64_t extra=(runtime_output_res_extra_bytes()+0x1fffff)&~0x1fffffULL;
  v=e?strtoull(e,NULL,0):0xcd500000ULL+extra;if(!e&&extra)fprintf(stderr,"[totk] application pool %#llx: +%llu MiB for the bigger texture heaps (TOTK_OUTPUT_RES, TOTK_RENDER_RES)\n",(unsigned long long)v,(unsigned long long)(extra>>20));}return v;}
@@ -108,7 +112,22 @@ static void memory_init(void) {
     to ALIAS_MIN_GIB before giving up (logging the free gaps); TOTK_ALIAS_GIB pins one size. */
  uint64_t want=alias_requested(),least=getenv("TOTK_ALIAS_GIB")?want:(ALIAS_MIN_GIB<<30);
  for(uint64_t a=want;a>=least&&!low_space;a-=1ULL<<30)if((low_space=reserve_in_gap(LOW_SIZE+a,0)))alias_len=a;
- if(!low_space){reserve_in_gap(UINT64_MAX,1);runtime_fail("reserve guest stack, heap and alias regions");}
+ if(!low_space){
+  reserve_in_gap(UINT64_MAX,1);
+  /* diagnostic: probe FIXED mappings at the 0x70_0000_0000 alias start to reveal the real map end / failure reason
+     (0=success, 1=KERN_INVALID_ADDRESS, 3=KERN_NO_SPACE). Kept for one startup after a layout failure. */
+  {
+   uint64_t need=LOW_SIZE+alias_requested();
+   for(uint64_t sz=1ULL<<30;sz<=need;sz+=1ULL<<30){
+    mach_vm_address_t a=ALIAS_SPACE_AT;mach_vm_size_t n=sz;
+    kern_return_t kr=mach_vm_map(mach_task_self(),&a,n,0,VM_FLAGS_FIXED,MEMORY_OBJECT_NULL,0,FALSE,VM_PROT_NONE,VM_PROT_ALL,VM_INHERIT_DEFAULT);
+    if(kr==KERN_SUCCESS){mach_vm_deallocate(mach_task_self(),a,n);fprintf(stderr,"[totk-diag] FIXED %#llx+%#llx: OK\n",(unsigned long long)ALIAS_SPACE_AT,(unsigned long long)sz);break;}
+    fprintf(stderr,"[totk-diag] FIXED %#llx+%#llx: kr=%d\n",(unsigned long long)ALIAS_SPACE_AT,(unsigned long long)sz,kr);
+    if(kr!=KERN_NO_SPACE)break;
+   }
+  }
+  runtime_fail("reserve guest stack, heap and alias regions");
+ }
  alias_space=low_space+LOW_SIZE;
 #else
  alias_space=reserve_fixed(ALIAS_SPACE_AT,ALIAS_SIZE);
