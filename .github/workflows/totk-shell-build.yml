@@ -107,6 +107,7 @@ jobs:
         run: |
           cd games/totk
           make dependencies
+          .venv/bin/python -m pip install unicorn
 
 
       - name: make verify（生成 phase12-validation.json + 等价性 gate）
