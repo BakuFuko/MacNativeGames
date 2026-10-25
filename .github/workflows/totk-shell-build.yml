@@ -1,5 +1,6 @@
 name: TOTK iOS Shell Build (CI 出壳)
 
+
 on:
   workflow_dispatch:
     inputs:
@@ -19,6 +20,7 @@ on:
         default: '4'
         type: string
 
+
 # 隐私提示：本 workflow 从私有对象存储（S3 兼容）拉取中间产物、回传壳 zip。
 # 首次使用前请在仓库 Settings -> Secrets and variables -> Actions 配置：
 #   CI_S3_ENDPOINT  （如 https://<account>.r2.cloudflarestorage.com）
@@ -28,9 +30,11 @@ on:
 #   CI_S3_PREFIX    （对象前缀，默认空）
 # 上传物打包与上传命令见 docs/TOTK_CI_shell_build_handoff.md。
 
+
 concurrency:
   group: totk-shell-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 
 jobs:
   shell-build:
@@ -52,10 +56,12 @@ jobs:
         with:
           fetch-depth: 1
 
+
       - name: 安装系统依赖（xcodegen / llvm / opus / libvpx / s3cmd）
         run: |
           brew install xcodegen llvm opus libvpx cmake ninja
           pip3 install --break-system-packages s3cmd
+
 
       - name: 配置 S3 客户端（R2/COS/OSS 兼容）
         run: |
@@ -68,6 +74,7 @@ jobs:
           host_bucket = %(bucket)s.${CI_S3_ENDPOINT#https://}
           use_https = True
           EOF
+
 
       - name: 下载中间产物（本机 TOTK_build 上传物）
         run: |
@@ -82,6 +89,7 @@ jobs:
           cd games/totk
           unzip -q -o /tmp/totk-ci-input.zip
 
+
       - name: 补齐 romfs index（v121 无独立 romfs 时回退 v0）并建稀疏 romfs.bin 占位
         run: |
           set -euo pipefail
@@ -94,19 +102,22 @@ jobs:
           SIZE=$(python3 -c 'import json;print(json.load(open("extracted/'${V}'/romfs/index.json"))["romfs_size"])')
           truncate -s "${SIZE}" "extracted/${V}/romfs/romfs.bin"
 
+
       - name: 初始化 Python venv 并安装依赖
         run: |
           cd games/totk
           make dependencies
 
+
       - name: make verify（生成 phase12-validation.json + 等价性 gate）
         run: |
           cd games/totk
           if ".venv/bin/python" scripts/verify_rewrites.py --version "${TOTK_VERSION}" --jobs "${TOTK_VERIFY_JOBS:-4}"; then :; else
-            echo '===== structure-v3 logs ====='
-            for f in analysis/${TOTK_VERSION}-port/*-structure-v3.log; do echo "--- $f ---"; cat "$f"; done
+            echo '===== gate logs ====='
+            for f in analysis/${TOTK_VERSION}-port/*-structure-v3.log analysis/${TOTK_VERSION}-port/*-equivalence-v3.log; do echo "--- $f ---"; cat "$f"; done
             exit 1
           fi
+
 
       - name: make runtime（编译 totk-native 与 Gen 表）
         run: |
@@ -116,6 +127,7 @@ jobs:
           else
             make "runtime-${TOTK_VERSION}"
           fi
+
 
       - name: 出壳（t2k_shell_build.py，产出 TOTK-shell zip）
         run: |
@@ -129,6 +141,7 @@ jobs:
           sha256sum "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.zip" \
             | tee "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.sha256"
 
+
       - name: 回传壳 zip 到对象存储
         run: |
           set -euo pipefail
@@ -138,6 +151,7 @@ jobs:
             "s3://${CI_S3_BUCKET}/${KEY}" || \
             echo "::warning::S3 回传失败（若未配置写权限，可改用下方 upload-artifact 下载）"
           sha256sum "/tmp/totk-shell/TOTK-shell-${TOTK_VERSION}.zip"
+
 
       - name: 上传壳 zip 为 GitHub Artifact（兜底回传）
         uses: actions/upload-artifact@v4
