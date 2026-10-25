@@ -1,4 +1,4 @@
-GEN = IOS / 'Gen'#!/usr/bin/env python3
+#!/usr/bin/env python3
 """t2k_shell_build.py — TOTK iOS 真壳出壳脚本（路径 A：CI 出壳，替代冒烟骨架）
 
 在 GitHub Actions macOS runner 上运行：把 MacNativeGames 的 iOS 出包链路
