@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+GEN = IOS / 'Gen'#!/usr/bin/env python3
 """t2k_shell_build.py — TOTK iOS 真壳出壳脚本（路径 A：CI 出壳，替代冒烟骨架）
 
 在 GitHub Actions macOS runner 上运行：把 MacNativeGames 的 iOS 出包链路
@@ -41,7 +41,7 @@ VERSIONS = ('v0', 'v112', 'v121', 'v143')
 # 脚本位于 ios/tools/，因此 IOS = 本文件父目录的父目录 = games/totk/ios。
 IOS = Path(__file__).resolve().parents[1]      # games/totk/ios
 ROOT = IOS.parent                               # games/totk
-GEN = IOS / 'Sources' / 'Gen'
+GEN = IOS / 'Gen'
 
 
 def developer_dir():
