@@ -28,7 +28,7 @@
    down to 4 GiB that fits is chosen at startup; the game maps about 3.3 GiB of it. */
 #if TARGET_OS_IPHONE
 #define ALIAS_DEFAULT_GIB 16
-#define ALIAS_MIN_GIB 4ULL
+#define ALIAS_MIN_GIB 3ULL   /* iPhone18ProMax/iOS27.2: 0x7000000000 起仅 6GiB 连续可映射（7GiB kr=1 越界），LOW+alias 须 ≤~6.25GiB；游戏映射约 3.3GiB，3GiB 为下限 */
 #else
 #define ALIAS_DEFAULT_GIB 64
 #endif
@@ -62,7 +62,7 @@ static uint8_t user_exception_context[0x1000] __attribute__((aligned(0x1000)));
 #define GAME_PROGRAM_ID 0x0100f2c0115b6000ULL
 #endif
 #if TARGET_OS_IPHONE
-#define HEAP_CAP (3ULL<<30)   /* iOS: shaved 1 GiB off so stack+heap+alias fit the scarce vm map (1.4.3 asks ~2.2 GiB) */
+#define HEAP_CAP (0xA0000000ULL)   /* iOS: 2.5 GiB — 1.4.3 asks ~2.2 GiB; cap shaved to 2.5GiB so stack+heap(3.25GiB)+alias(3GiB) fit the 6GiB vm map */
 #else
 #define HEAP_CAP (4ULL<<30)   /* 1.4.3 sets a 2.2 GiB heap during nninitStartup */
 #endif
@@ -120,8 +120,7 @@ static void memory_init(void) {
    /* diagnostic: probe 0x70_0000_0000 with increasing sizes and print every attempt,
       so a failing startup reveals how much is actually mappable before the first failure
       (kr: 0=success, 1=KERN_INVALID_ADDRESS, 3=KERN_NO_SPACE). */
-   uint64_t need=LOW_SIZE+alias_requested();
-   for(uint64_t sz=1ULL<<30;sz<=need;sz+=1ULL<<30){
+   for(uint64_t sz=256ULL<<20;;sz+=256ULL<<20){
     mach_vm_address_t a=ALIAS_SPACE_AT;mach_vm_size_t n=sz;
     kern_return_t kr=mach_vm_map(mach_task_self(),&a,n,0,VM_FLAGS_FIXED,MEMORY_OBJECT_NULL,0,FALSE,VM_PROT_NONE,VM_PROT_ALL,VM_INHERIT_DEFAULT);
     fprintf(stderr,"[totk-diag] FIXED %#llx+%#llx: kr=%d\n",(unsigned long long)ALIAS_SPACE_AT,(unsigned long long)sz,kr);
