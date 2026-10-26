@@ -117,13 +117,16 @@ static void memory_init(void) {
   /* diagnostic: probe FIXED mappings at the 0x70_0000_0000 alias start to reveal the real map end / failure reason
      (0=success, 1=KERN_INVALID_ADDRESS, 3=KERN_NO_SPACE). Kept for one startup after a layout failure. */
   {
+   /* diagnostic: probe 0x70_0000_0000 with increasing sizes and print every attempt,
+      so a failing startup reveals how much is actually mappable before the first failure
+      (kr: 0=success, 1=KERN_INVALID_ADDRESS, 3=KERN_NO_SPACE). */
    uint64_t need=LOW_SIZE+alias_requested();
    for(uint64_t sz=1ULL<<30;sz<=need;sz+=1ULL<<30){
     mach_vm_address_t a=ALIAS_SPACE_AT;mach_vm_size_t n=sz;
     kern_return_t kr=mach_vm_map(mach_task_self(),&a,n,0,VM_FLAGS_FIXED,MEMORY_OBJECT_NULL,0,FALSE,VM_PROT_NONE,VM_PROT_ALL,VM_INHERIT_DEFAULT);
-    if(kr==KERN_SUCCESS){mach_vm_deallocate(mach_task_self(),a,n);fprintf(stderr,"[totk-diag] FIXED %#llx+%#llx: OK\n",(unsigned long long)ALIAS_SPACE_AT,(unsigned long long)sz);break;}
     fprintf(stderr,"[totk-diag] FIXED %#llx+%#llx: kr=%d\n",(unsigned long long)ALIAS_SPACE_AT,(unsigned long long)sz,kr);
-    if(kr!=KERN_NO_SPACE)break;
+    if(kr!=KERN_SUCCESS)break;
+    mach_vm_deallocate(mach_task_self(),a,n);
    }
   }
   runtime_fail("reserve guest stack, heap and alias regions");
