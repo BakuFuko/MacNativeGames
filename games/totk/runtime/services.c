@@ -44,7 +44,11 @@ static uint64_t alias_size(void){if(!alias_len)alias_len=alias_requested();retur
 #endif
 #define STACK_OFF 0x10000000ULL
 #define STACK_SIZE 0x10000000ULL
+#if TARGET_OS_IPHONE
+#define HEAP_OFF (STACK_OFF+STACK_SIZE)   /* iOS: drop the 256MiB slack so stack+heap(2.75GiB)+alias(3GiB) fit the 6GiB iphone vm map (0x7000000000+6GiB ok, +6.25GiB kr=1) */
+#else
 #define HEAP_OFF (STACK_OFF+STACK_SIZE+0x10000000ULL)
+#endif
 static uint8_t *alias_space,*low_space,*heap;
 static size_t heap_size;
 static unsigned char alias_pages[ALIAS_SIZE_MAX/4096];
@@ -62,7 +66,7 @@ static uint8_t user_exception_context[0x1000] __attribute__((aligned(0x1000)));
 #define GAME_PROGRAM_ID 0x0100f2c0115b6000ULL
 #endif
 #if TARGET_OS_IPHONE
-#define HEAP_CAP (0xA0000000ULL)   /* iOS: 2.5 GiB — 1.4.3 asks ~2.2 GiB; cap shaved to 2.5GiB so stack+heap(3.25GiB)+alias(3GiB) fit the 6GiB vm map */
+#define HEAP_CAP (0x90000000ULL)   /* iOS: 2.25 GiB — 1.4.3 asks ~2.2 GiB; cap shaved again so stack+heap(2.75GiB)+alias(3GiB) fit the 6GiB vm map */
 #else
 #define HEAP_CAP (4ULL<<30)   /* 1.4.3 sets a 2.2 GiB heap during nninitStartup */
 #endif
